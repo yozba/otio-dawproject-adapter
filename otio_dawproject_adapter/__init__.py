@@ -1,0 +1,1 @@
+"""OpenTimelineIO DAWproject adapter package."""

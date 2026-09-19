@@ -17,7 +17,12 @@ timeline = otio.adapters.read_from_file("song.dawproject")
 otio.adapters.write_to_file(timeline, "copy.dawproject")
 ```
 
-To obtain playable file references for media embedded in the ZIP, supply an extraction directory:
+Reading a DAWproject extracts its embedded media to a persistent
+`song-media` directory beside the source archive. Clips receive raw absolute
+filesystem paths, so OTIO consumers such as DaVinci Resolve can locate media
+whose names contain spaces. This avoids a Resolve interoperability bug where
+percent escapes in `file:` URLs (such as `%20`) are treated literally.
+To choose another extraction directory, pass it explicitly:
 
 ```python
 timeline = otio.adapters.read_from_file(
@@ -25,7 +30,15 @@ timeline = otio.adapters.read_from_file(
 )
 ```
 
-Without extraction, clips have `MissingReference` media references. The original archive and member path are recorded in `clip.metadata["dawproject"]`; writing the timeline can copy the embedded media from the original archive. Keep that archive available until writing is complete. When writing a newly created OTIO timeline, clips need local `ExternalReference` URLs. WAV headers provide the channel count, sample rate, and media duration. For other audio formats set `channels`, `sample_rate`, and `media_duration` in `clip.metadata["dawproject"]`.
+For a metadata-only read without extraction, explicitly pass
+`extract_media_to=None`. Clips then have `MissingReference` media references.
+The original archive and member path are recorded in
+`clip.metadata["dawproject"]`, so writing the timeline can still copy embedded
+media from the original archive. Keep that archive available until writing is
+complete. When writing a newly created OTIO timeline, clips need local
+`ExternalReference` URLs. WAV headers provide the channel count, sample rate,
+and media duration. For other audio formats set `channels`, `sample_rate`, and
+`media_duration` in `clip.metadata["dawproject"]`.
 
 ## Supported conversion
 

@@ -34,7 +34,7 @@ def test_read_nested_beat_clip_and_roundtrip(tmp_path):
     with zipfile.ZipFile(original, "w") as archive:
         archive.writestr("project.xml", project)
         archive.writestr("audio/hit.wav", wav_bytes())
-    timeline = dawproject.read_from_file(original)
+    timeline = dawproject.read_from_file(original, extract_media_to=None)
     assert len(timeline.tracks) == 1
     assert isinstance(timeline.tracks[0][0], otio.schema.Gap)
     clip = timeline.tracks[0][1]
@@ -47,9 +47,55 @@ def test_read_nested_beat_clip_and_roundtrip(tmp_path):
         assert archive.read("audio/hit.wav") == wav_bytes()
         xml = ET.fromstring(archive.read("project.xml"))
         assert xml.find("./Arrangement/Lanes/Lanes/Clips/Clip").get("time") == "1"
-    again = dawproject.read_from_file(output)
+    again = dawproject.read_from_file(output, extract_media_to=None)
     assert again.tracks[0][1].source_range.start_time.to_seconds() == pytest.approx(.25)
     assert again.tracks[0][1].metadata["dawproject"]["source_seconds_per_timeline_second"] == pytest.approx(1.5)
+
+
+def test_read_extracts_media_by_default(tmp_path):
+    project = b'''<Project version="1"><Application name="Test" version="1"/>
+      <Structure><Track id="t1" contentType="audio"/><Track id="t2" contentType="audio"/></Structure>
+      <Arrangement><Lanes timeUnit="seconds">
+      <Lanes track="t1"><Clips><Clip time="0" duration="1" name="First"><Audio channels="2" sampleRate="48000" duration="1">
+      <File path="audio/first clip.wav"/></Audio></Clip></Clips></Lanes>
+      <Lanes track="t2"><Clips><Clip time="0" duration="1" name="Second"><Audio channels="2" sampleRate="48000" duration="1">
+      <File path="audio/second clip.wav"/></Audio></Clip></Clips></Lanes>
+      </Lanes></Arrangement></Project>'''
+    path = tmp_path / "project.dawproject"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("project.xml", project)
+        archive.writestr("audio/first clip.wav", wav_bytes(1))
+        archive.writestr("audio/second clip.wav", wav_bytes(1))
+
+    timeline = dawproject.read_from_file(path)
+
+    extracted = tmp_path / "project-media" / "audio"
+    assert (extracted / "first clip.wav").read_bytes() == wav_bytes(1)
+    assert (extracted / "second clip.wav").read_bytes() == wav_bytes(1)
+    references = [track[0].media_reference for track in timeline.tracks]
+    assert all(isinstance(reference, otio.schema.ExternalReference) for reference in references)
+    assert [reference.target_url for reference in references] == [
+        (extracted / "first clip.wav").resolve().as_posix(),
+        (extracted / "second clip.wav").resolve().as_posix(),
+    ]
+    assert all("%20" not in reference.target_url for reference in references)
+    assert all(not reference.target_url.startswith("file:") for reference in references)
+
+
+def test_read_can_skip_media_extraction(tmp_path):
+    project = b'''<Project version="1"><Application name="Test" version="1"/>
+      <Structure><Track id="t" contentType="audio"/></Structure>
+      <Arrangement><Lanes timeUnit="seconds"><Lanes track="t"><Clips>
+      <Clip time="0" duration="1"><Audio><File path="audio/a.wav"/></Audio></Clip>
+      </Clips></Lanes></Lanes></Arrangement></Project>'''
+    path = tmp_path / "project.dawproject"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("project.xml", project)
+
+    timeline = dawproject.read_from_file(path, extract_media_to=None)
+
+    assert isinstance(timeline.tracks[0][0].media_reference, otio.schema.MissingReference)
+    assert not (tmp_path / "project-media").exists()
 
 
 def test_write_external_wav_and_extract(tmp_path):
@@ -66,7 +112,9 @@ def test_write_external_wav_and_extract(tmp_path):
     output = tmp_path / "mix.dawproject"
     dawproject.write_to_file(timeline, output)
     restored = dawproject.read_from_file(output, extract_media_to=tmp_path / "extracted")
-    assert restored.tracks[0][1].media_reference.target_url.startswith("file:")
+    assert restored.tracks[0][1].media_reference.target_url == (
+        tmp_path / "extracted" / "audio" / "sound.wav"
+    ).resolve().as_posix()
     assert (tmp_path / "extracted" / "audio" / "sound.wav").read_bytes() == source.read_bytes()
 
 

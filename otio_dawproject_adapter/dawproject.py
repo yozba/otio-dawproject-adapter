@@ -21,6 +21,7 @@ import opentimelineio as otio
 
 RATE = 1000
 KEY = "dawproject"
+_AUTO_EXTRACT = object()
 
 
 def _number(value, default=0.0):
@@ -119,7 +120,10 @@ def _read_clip(element, unit, tempo, archive, archive_name, extract_dir):
         output.parent.mkdir(parents=True, exist_ok=True)
         with archive.open(media_path) as source, output.open("wb") as target:
             shutil.copyfileobj(source, target)
-        clip.media_reference = otio.schema.ExternalReference(target_url=output.resolve().as_uri())
+        # Resolve currently treats percent escapes in file: URLs literally on
+        # import (for example, "%20" instead of a space).  OTIO also permits
+        # raw filesystem paths, which Resolve handles correctly.
+        clip.media_reference = otio.schema.ExternalReference(target_url=output.resolve().as_posix())
     else:
         clip.media_reference = otio.schema.MissingReference()
     return clip
@@ -137,13 +141,18 @@ def _track_lanes(root):
     return result
 
 
-def read_from_file(filepath, extract_media_to=None):
+def read_from_file(filepath, extract_media_to=_AUTO_EXTRACT):
     """Read a .dawproject archive into an OTIO Timeline.
 
-    Set ``extract_media_to`` to a directory to make embedded audio playable.
-    Without it, clips retain archive information in metadata for round-tripping.
+    Embedded media is extracted beside the archive by default so applications
+    consuming the resulting OTIO receive playable ``ExternalReference`` URLs.
+    Set ``extract_media_to`` to a directory to choose another location, or to
+    ``None`` to keep media embedded and use ``MissingReference`` objects for a
+    metadata-only read.
     """
     archive_name = Path(filepath).resolve()
+    if extract_media_to is _AUTO_EXTRACT:
+        extract_media_to = archive_name.with_name(archive_name.stem + "-media")
     with zipfile.ZipFile(archive_name) as archive:
         info = archive.getinfo("project.xml")
         if info.file_size > 32 * 1024 * 1024:
@@ -206,12 +215,16 @@ def _media_file(clip, output, used_names):
     url = ref.target_url if isinstance(ref, otio.schema.ExternalReference) else None
     source = None
     if url:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("", "file") or parsed.netloc not in ("", "localhost"):
-            raise ValueError("Only local media files can be embedded: " + url)
-        source = Path(unquote(parsed.path)) if parsed.scheme == "file" else Path(url)
-        if os.name == "nt" and parsed.scheme == "file" and source.as_posix().startswith("/"):
-            source = Path(str(source)[1:])
+        is_windows_path = os.name == "nt" and len(url) >= 3 and url[1] == ":" and url[2] in ("/", "\\")
+        if is_windows_path:
+            source = Path(url)
+        else:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("", "file") or parsed.netloc not in ("", "localhost"):
+                raise ValueError("Only local media files can be embedded: " + url)
+            source = Path(unquote(parsed.path)) if parsed.scheme == "file" else Path(url)
+            if os.name == "nt" and parsed.scheme == "file" and source.as_posix().startswith("/"):
+                source = Path(str(source)[1:])
         if not source.is_file():
             raise FileNotFoundError(source)
         media_name = source.name

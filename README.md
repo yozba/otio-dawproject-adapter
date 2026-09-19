@@ -40,6 +40,28 @@ complete. When writing a newly created OTIO timeline, clips need local
 and media duration. For other audio formats set `channels`, `sample_rate`, and
 `media_duration` in `clip.metadata["dawproject"]`.
 
+## Self-contained OTIOZ export
+
+Use the included command to create a single OTIOZ bundle containing both the
+timeline and its audio media:
+
+```sh
+dawproject-to-otioz -i "song.dawproject" -o "song.otioz"
+```
+
+The command extracts media into a temporary directory, invokes OpenTimelineIO's
+standard OTIOZ writer, and removes the temporary files after the bundle is
+complete. DaVinci Resolve can unpack and link the bundled media when importing
+the resulting `.otioz` file.
+
+The same conversion is available as a Python API:
+
+```python
+from otio_dawproject_adapter.otioz import write_otioz
+
+write_otioz("song.dawproject", "song.otioz")
+```
+
 ## Supported conversion
 
 - Audio tracks, clips, gaps, names, colors, constant tempo, and time signature.

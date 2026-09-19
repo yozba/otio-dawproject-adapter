@@ -70,7 +70,7 @@ def _audio_leaf(element):
     return None, None
 
 
-def _read_clip(element, unit, tempo, archive, archive_name, extract_dir):
+def _read_clip(element, unit, tempo, archive, archive_name, extract_dir, media_reference_style):
     audio, warps = _audio_leaf(element)
     if audio is None:
         if element.find("Notes") is not None:
@@ -120,10 +120,14 @@ def _read_clip(element, unit, tempo, archive, archive_name, extract_dir):
         output.parent.mkdir(parents=True, exist_ok=True)
         with archive.open(media_path) as source, output.open("wb") as target:
             shutil.copyfileobj(source, target)
-        # Resolve currently treats percent escapes in file: URLs literally on
-        # import (for example, "%20" instead of a space).  OTIO also permits
-        # raw filesystem paths, which Resolve handles correctly.
-        clip.media_reference = otio.schema.ExternalReference(target_url=output.resolve().as_posix())
+        if media_reference_style == "url":
+            target_url = output.resolve().as_uri()
+        else:
+            # Resolve currently treats percent escapes in file: URLs literally
+            # on import (for example, "%20" instead of a space). OTIO also
+            # permits raw filesystem paths, which Resolve handles correctly.
+            target_url = output.resolve().as_posix()
+        clip.media_reference = otio.schema.ExternalReference(target_url=target_url)
     else:
         clip.media_reference = otio.schema.MissingReference()
     return clip
@@ -141,15 +145,19 @@ def _track_lanes(root):
     return result
 
 
-def read_from_file(filepath, extract_media_to=_AUTO_EXTRACT):
+def read_from_file(filepath, extract_media_to=_AUTO_EXTRACT, media_reference_style="path"):
     """Read a .dawproject archive into an OTIO Timeline.
 
     Embedded media is extracted beside the archive by default so applications
     consuming the resulting OTIO receive playable ``ExternalReference`` URLs.
     Set ``extract_media_to`` to a directory to choose another location, or to
     ``None`` to keep media embedded and use ``MissingReference`` objects for a
-    metadata-only read.
+    metadata-only read. ``media_reference_style`` may be ``"path"`` for
+    Resolve-compatible raw paths or ``"url"`` for standard file URLs required
+    by OTIO bundle writers.
     """
+    if media_reference_style not in ("path", "url"):
+        raise ValueError("media_reference_style must be 'path' or 'url'")
     archive_name = Path(filepath).resolve()
     if extract_media_to is _AUTO_EXTRACT:
         extract_media_to = archive_name.with_name(archive_name.stem + "-media")
@@ -194,7 +202,15 @@ def read_from_file(filepath, extract_media_to=_AUTO_EXTRACT):
                 for clips in lane.findall("Clips"):
                     clip_unit = clips.get("timeUnit") or unit
                     for element in clips.findall("Clip"):
-                        clip = _read_clip(element, clip_unit, tempo, archive, archive_name, extract_media_to)
+                        clip = _read_clip(
+                            element,
+                            clip_unit,
+                            tempo,
+                            archive,
+                            archive_name,
+                            extract_media_to,
+                            media_reference_style,
+                        )
                         if clip is not None:
                             found.append((_seconds(element.get("time"), clip_unit, tempo), clip))
             cursor = 0.0
@@ -275,7 +291,7 @@ def write_to_file(input_otio, filepath):
     if len(signature) != 2 or any(int(n) <= 0 for n in signature):
         raise ValueError("Invalid time signature")
     root = ET.Element("Project", version="1.0")
-    ET.SubElement(root, "Application", name="otio-dawproject-adapter", version="0.1.0")
+    ET.SubElement(root, "Application", name="otio-dawproject-adapter", version="0.2.0")
     transport = ET.SubElement(root, "Transport")
     ET.SubElement(transport, "Tempo", id="tempo", name="Tempo", value=_fmt(tempo), unit="bpm")
     ET.SubElement(transport, "TimeSignature", id="signature", numerator=str(int(signature[0])), denominator=str(int(signature[1])))

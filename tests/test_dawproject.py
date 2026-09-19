@@ -1,4 +1,5 @@
 import io
+import json
 import wave
 import zipfile
 import xml.etree.ElementTree as ET
@@ -7,6 +8,7 @@ import pytest
 import opentimelineio as otio
 
 from otio_dawproject_adapter import dawproject
+from otio_dawproject_adapter import otioz
 
 
 def wav_bytes(seconds=2):
@@ -96,6 +98,40 @@ def test_read_can_skip_media_extraction(tmp_path):
 
     assert isinstance(timeline.tracks[0][0].media_reference, otio.schema.MissingReference)
     assert not (tmp_path / "project-media").exists()
+
+
+def test_write_otioz_bundles_media(tmp_path):
+    project = b'''<Project version="1"><Application name="Test" version="1"/>
+      <Structure><Track id="t1" contentType="audio"/><Track id="t2" contentType="audio"/></Structure>
+      <Arrangement><Lanes timeUnit="seconds">
+      <Lanes track="t1"><Clips><Clip time="0" duration="1" name="First"><Audio channels="2" sampleRate="48000" duration="1">
+      <File path="audio/first clip.wav"/></Audio></Clip></Clips></Lanes>
+      <Lanes track="t2"><Clips><Clip time="0" duration="1" name="Second"><Audio channels="2" sampleRate="48000" duration="1">
+      <File path="audio/second clip.wav"/></Audio></Clip></Clips></Lanes>
+      </Lanes></Arrangement></Project>'''
+    source = tmp_path / "project.dawproject"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("project.xml", project)
+        archive.writestr("audio/first clip.wav", wav_bytes(1))
+        archive.writestr("audio/second clip.wav", wav_bytes(1))
+
+    output = tmp_path / "project.otioz"
+    assert otioz.write_otioz(source, output) == str(output.resolve())
+
+    with zipfile.ZipFile(output) as bundle:
+        assert "content.otio" in bundle.namelist()
+        assert "version.txt" in bundle.namelist()
+        assert "media/first clip.wav" in bundle.namelist()
+        assert "media/second clip.wav" in bundle.namelist()
+        content = json.loads(bundle.read("content.otio"))
+    references = [
+        track["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"]
+        for track in content["tracks"]["children"]
+    ]
+    assert references == ["media/first clip.wav", "media/second clip.wav"]
+    assert all("%20" not in reference for reference in references)
+    assert not (tmp_path / "project-media").exists()
+    assert not list(tmp_path.glob(".otio-dawproject-*"))
 
 
 def test_write_external_wav_and_extract(tmp_path):

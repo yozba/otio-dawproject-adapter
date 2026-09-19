@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "otio-dawproject-adapter"
-version = "0.1.0"
+version = "0.2.0"
 description = "OpenTimelineIO adapter for DAWproject audio timelines"
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,6 +17,9 @@ test = ["pytest>=7"]
 
 [project.entry-points."opentimelineio.plugins"]
 otio_dawproject_adapter = "otio_dawproject_adapter"
+
+[project.scripts]
+dawproject-to-otioz = "otio_dawproject_adapter.otioz:main"
 
 [tool.setuptools.package-data]
 otio_dawproject_adapter = ["plugin_manifest.json"]

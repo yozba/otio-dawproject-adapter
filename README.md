@@ -62,6 +62,23 @@ from otio_dawproject_adapter.otioz import write_otioz
 write_otioz("song.dawproject", "song.otioz")
 ```
 
+## Timing model and fidelity
+
+DAWproject can combine musical time (beats and tempo maps) with absolute time,
+audio warping, pitch changes, and DAW-specific playback algorithms. OTIO
+primarily represents editorial timing in absolute time and cannot directly
+express a DAW's tempo-dependent playback or arbitrary audio warp curves.
+
+This adapter converts beat-based timing to seconds for projects with a constant
+tempo. It rejects detected tempo automation and unsupported complex warp
+structures rather than approximating them and producing a silently misaligned
+timeline. Other DAW playback features not listed below, including pitch changes
+and DAW-specific stretch algorithms, are not transferred.
+
+For reliable interchange with video editors, render or bounce
+tempo-dependent, time-stretched, or pitch-shifted audio in the source DAW
+before conversion.
+
 ## Supported conversion
 
 - Audio tracks, clips, gaps, names, colors, constant tempo, and time signature.
